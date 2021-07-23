@@ -24,8 +24,7 @@ def check_emscripten():
     try:
         path = Path(os.environ["EMSDK"])
         return [path.exists(),
-                subprocess.run(["emcc", "--version"], text=True,
-                               capture_output=True).stdout.split(' ')[4]]
+                subprocess.run(["emcc", "--version"], text=True, capture_output=True).stdout.split(' ')[4]]
 
     except KeyError:
         return [False, None]
@@ -93,8 +92,11 @@ def finalise(build_dir, exported_functions):
 
     execute(["emcc", "-O3"]
             + libs
-            + ["-o", "webhdf5.js", "-s",
-               "EXTRA_EXPORTED_RUNTIME_METHODS='[\"ccall\", \"cwrap\"]'",
+            + ["../test.c"]
+            + ["-I../libhdf5/src/", "-I./src"]
+            + ["-o", "webhdf5.js", 
+               "-s", "WASM_BIGINT",
+               "-s", "EXTRA_EXPORTED_RUNTIME_METHODS=[\"ccall\", \"cwrap\"]",
                "-s", exported_functions],
             build_dir)
     return [build_dir / Path("webhdf5.wasm"), build_dir / Path("webhdf5.js")]
