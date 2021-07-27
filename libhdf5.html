@@ -12,12 +12,14 @@
       <progress hidden id="progress" max="100" value="0"> </progress>
     </div>
     <textarea id="output" rows="8"> </textarea>
-    <input type="file" id="input" onchange="alert(this.files[0].name)" />
+    <input type="file" id="datafile" onchange="loadData()" />
     <script>
       var statusElement = document.getElementById("status"),
         progressElement = document.getElementById("progress"),
         spinnerElement = document.getElementById("spinner"),
         Module = {
+          noInitialRun: true,
+          noExitRuntime: true,
           preRun: [],
           postRun: [],
           print: (function() {
@@ -83,14 +85,70 @@
               e && Module.printErr("[post-exception status] " + e);
             });
         });
+      function loadData() {
+          var file_input = document.getElementById('datafile');
+          var file = file_input.files[0]; // only one file allowed
+          let datafilename = file.name;
+          let reader = new FileReader();
+          reader.onloadend = function(evt) { 
+            let data = evt.target.result;
+            //var f = new hdf5.File(barr, datafilename);
+            //window.f = f;
+            //HDFHandler(datafilename, f);
+            //$("span#loaded_file").text(datafilename);
+            // Store the file
+            //let filename = 'favicon.ico';
+            
+            
+            /*
+            let stream = FS.open(datafilename, 'w+');
+            FS.write(stream, data, 0, data.byteLength, 0);
+            FS.close(stream);
+            */
+            
+            FS.writeFile('data.h5', new Uint8Array(data));
+
+            // Call WebAssembly/C++ to process the file
+            //console.log(Module.processFile(filename));
+            console.log('file loaded', datafilename);
+          }
+          reader.readAsArrayBuffer(file);
+          
+          file_input.value = "";
+      }
+      function load_file(filename) {
+        let fid = Module.ccall("H5Fopen", "bigint", ["string", "number", "bigint"], [filename, 0, 0n]);
+        return fid;
+      }
+      function get_keys(file_id, groupname) {
+        let decoder = new TextDecoder();
+        let num_keys = Module.ccall("num_keys", "bigint", ["bigint", "string"], [file_id, groupname]);
+        let ordered = Module.ccall("has_creation_order", "boolean", ["bigint", "string"], [file_id, groupname]);
+        let ordering = (ordered) ? 1 : 0;
+        keys = [];
+        for (let i=0n; i<num_keys; i++) {
+          let name_length = Module.ccall("H5Lget_name_by_idx", "number", ["bigint", "string", "number", "number", "bigint", "bigint", "number", "bigint"], [file_id, groupname, ordering, 0, i, null, null, 0n])
+          //let name_length = Module.ccall("get_link_name_length", "number", ["bigint", "string", "bigint"], [file_id, groupname, i]);
+          let name = Module._malloc(Number(name_length + 1));
+          Module.ccall("H5Lget_name_by_idx", "number", ["bigint", "string", "number", "number", "bigint", "bigint", "number", "bigint"], [file_id, groupname, ordering, 0, i, name, name_length + 1, 0n])
+
+          //Module.ccall("get_link_name", null, ["bigint", "string", "bigint", "number", "number"], [file_id, groupname, i, name_length, name]);
+          //console.log(name, name_length);
+          let name_str = decoder.decode(Module.HEAP8.buffer.slice(name, name + name_length));
+          Module._free(name);
+          keys.push(name_str);
+        }
+        return keys;
+
+      }
     </script>
     <script async src="webhdf5.js"></script>
     <script>
       Module.onRuntimeInitialized = _ => {
         alert("Initialised wasm module");
-        // const init = Module.cwrap("H5open", "number");
-        // init();
-        // console.log("libHDF5 initialized");
+         const init = Module.cwrap("H5open", "number");
+         init();
+         console.log("libHDF5 initialized");
       };
     </script>
   </body>
