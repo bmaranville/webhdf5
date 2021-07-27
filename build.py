@@ -33,10 +33,12 @@ def check_emscripten():
 def setup_build(prefix="build"):
     def gen_directories():
         cache = tempfile.mkdtemp(prefix="cache", dir=os.getcwd())
+        print(cache)
         cleanup_dirs.append(cache)
 
         while True:
             build = tempfile.mkdtemp(prefix=prefix, dir=os.getcwd())
+            print(build)
             cleanup_dirs.append(build)
             yield [build, cache]
 
@@ -76,7 +78,7 @@ def run_configure_script(build_dir, runner=["bash"]):
     configure_script = Path("..") / Path("libhdf5") / Path("configure")
     execute(runner + [str(configure_script), "--disable-tests",
                       "--enable-build-mode=production",
-                      "--disable-tools", "--disable-shared",
+                      "--disable-tools", #"--disable-shared",
                       "--disable-deprecated-symbols"],
             build_dir)
 
@@ -86,6 +88,7 @@ def run_make(build_dir, runner=[]):
 
 
 def finalise(build_dir, exported_functions):
+    print('finalising: ', build_dir, ", current working dir: ", os.getcwd())
     libs = [str(build_dir / Path("src") / Path(".libs") / Path("libhdf5.a")),
             str(build_dir / Path("hl") / Path("src") / Path(".libs")
                 / Path("libhdf5_hl.a"))]
@@ -143,4 +146,4 @@ if __name__ == "__main__":
     except BaseException as err:
         print(err)
 
-    cleanup()
+    # cleanup()
