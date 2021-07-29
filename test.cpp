@@ -34,6 +34,9 @@ using namespace emscripten;
 using namespace H5;
 const H5std_string FILE_NAME( "Group.h5" );
 const int      RANK = 2;
+#define ATTRIBUTE_DATA 0
+#define DATASET_DATA   1
+#define ENUM_DATA      2
 // Operator function
 extern "C" herr_t file_info(hid_t loc_id, const char *name, const H5L_info_t *linfo,
     void *opdata);
@@ -310,6 +313,10 @@ val get_types2(H5File file, std::string group_name) {
     return types;
 }
 
+int get_type(H5File file, std::string obj_name) {
+    return (int) file.childObjType(obj_name);
+}
+
 val get_shape(DataSpace& dspace) {
     int rank = dspace.getSimpleExtentNdims();
     hsize_t dims_out[rank];
@@ -338,7 +345,6 @@ val get_abstractds_metadata(AbstractDs& ds) {
     DataType dtype = ds.getDataType();
     size_t size = dtype.getSize();
     H5T_class_t dtype_class = dtype.getClass();
-    H5std_string order_string = "";
     H5T_order_t order;
     H5T_cset_t cset;
 
@@ -346,10 +352,11 @@ val get_abstractds_metadata(AbstractDs& ds) {
         case H5T_STRING: {
             //StrType ts = attr_obj.getStrType();
             StrType str_type = ds.getStrType();
-            order = str_type.getOrder(order_string);
+            order = str_type.getOrder();
             cset = str_type.getCset();
             //htri_t is_variable_len = H5Tis_variable_str(str_type.getId());
             attr.set("vlen", str_type.isVariableStr());
+            attr.set("typestr", "string");
             attr.set("cset", (int) cset);
             str_type.close();
             break;
@@ -357,14 +364,18 @@ val get_abstractds_metadata(AbstractDs& ds) {
         case H5T_INTEGER: 
         {
             IntType int_type = ds.getIntType();
-            order = int_type.getOrder(order_string);
+            order = int_type.getOrder();
             H5T_sign_t is_signed = int_type.getSign();
-            attr.set("signed", is_signed);
+            attr.set("signed", (bool)is_signed);
+            attr.set("typestr", "int");
             int_type.close();
             break;
         }
         case H5T_FLOAT: {
-            order = ds.getFloatType().getOrder(order_string);
+            FloatType float_type = ds.getFloatType();
+            order = float_type.getOrder();
+            attr.set("typestr", "float");
+            float_type.close();
             break;
         }
 
@@ -372,10 +383,12 @@ val get_abstractds_metadata(AbstractDs& ds) {
             // pass
             break;
     }
-    attr.set("order", order_string);
+    bool littleEndian = (order == H5T_ORDER_LE);
+    attr.set("littleEndian", littleEndian);
     attr.set("type", (int) dtype_class);
     attr.set("size", size);
     attr.set("memsize", ds.getInMemDataSize());
+    
     dspace.close();
     dtype.close();
     return attr;
@@ -393,12 +406,159 @@ void object_get_attr_metadata(H5Object& loc, H5std_string name, void* opdata) {
     val *attrs = reinterpret_cast<val *>(opdata);
     Attribute attr_obj = loc.openAttribute(name);
     val attr = get_abstractds_metadata(attr_obj);
+    attr.set("id", attr_obj.getId());
     attr_obj.close();
 
     attrs->set(name, attr);
 }
 
+H5std_string read_attribute_string(Attribute attr_obj, int offset) {
+    return "";
+}
+
+val get_attribute_metadata(H5File file, H5std_string obj_name, H5std_string attr_name) {
+    H5O_type_t type = file.childObjType(obj_name);
+    Attribute attr_obj;
+    switch(type) {
+        case H5O_TYPE_DATASET: 
+        {
+            attr_obj = file.openDataSet(obj_name).openAttribute(attr_name);
+            break;
+        }
+        case H5O_TYPE_GROUP: 
+        {
+            attr_obj = file.openGroup(obj_name).openAttribute(attr_name);
+            break;
+        }
+        case H5O_TYPE_MAP:
+        {
+            attr_obj = file.openDataType(obj_name).openAttribute(attr_name);
+            break;
+        }
+        default:
+            break;
+
+    }
+
+    val attr = get_abstractds_metadata(attr_obj);
+    attr.set("id", attr_obj.getId());
+    attr_obj.close();
+    return attr;
+}
+
+val get_data(AbstractDs & ds, int source) {
+    
+    size_t datasize = ds.getInMemDataSize();
+    DataType dtype = ds.getDataType();
+    htri_t is_variable_len = H5Tis_variable_str(dtype.getId());
+
+    DataSpace dspace = ds.getSpace();
+    int total_size = dspace.getSimpleExtentNpoints();
+    size_t size = dtype.getSize();
+    H5T_class_t dtype_class = dtype.getClass();
+    bool is_vlstr = dtype.isVariableStr();
+    Attribute * attribute_obj;
+    DataSet * dataset_obj;
+    
+    if (source == ATTRIBUTE_DATA) {
+        attribute_obj = (Attribute *) &ds;
+    }
+    else if (source == DATASET_DATA) {
+        dataset_obj = (DataSet *) &ds;
+    }
+
+    if (dtype_class == H5T_STRING) 
+    {
+        StrType str_type = ds.getStrType();
+        int ndims = dspace.getSimpleExtentNdims();
+        
+        if (ndims > 0) {
+            val output = val::array();
+
+            void * buf = malloc(total_size*size);
+            if (source == ATTRIBUTE_DATA) {
+                attribute_obj->read(dtype, buf);
+            }
+            else if (source == DATASET_DATA) {
+                dataset_obj->read(buf, dtype);
+            }
+            char * bp = (char *) buf;
+            char * onestring = NULL;
+            if (!is_vlstr)
+                onestring = (char *)calloc(size, sizeof(char));
+
+            for (int i=0; i<total_size; i++) {
+                if (is_vlstr) {
+                    onestring = *(char **)((void *)bp);
+                }
+                else {
+                    strncpy(onestring, bp, size);
+                }
+                output.set(i, val(std::string(onestring)));
+                bp += size;
+            }
+            
+            if (!is_vlstr)
+                if (onestring)
+                    free(onestring);
+
+            if (buf) {
+                if (is_vlstr)
+                    H5Treclaim(dtype.getId(), dspace.getId(), H5P_DEFAULT, buf);
+                free(buf);
+            }
+            return output;
+            
+        }
+        else {
+            H5std_string readbuf;
+            if (source == ATTRIBUTE_DATA) {
+                attribute_obj->read(dtype, readbuf);
+                attribute_obj->close();
+            }
+            else if (source == DATASET_DATA) {
+                dataset_obj->read(readbuf, dtype);
+                dataset_obj->close();
+            }
+            //cout << readbuff.length() << " length" << endl;
+            dtype.close();
+            str_type.close();
+            dspace.close();
+            return val(readbuf);
+        }
+        
+    }
+    else 
+    {
+        //std::vector<uint8_t> vec (datasize);
+        //const uint8_t * buffer = vec.data();
+        thread_local const val Uint8Array = val::global("Uint8Array");
+        uint8_t * buffer = (uint8_t*)malloc(size * total_size);
+        
+        if (source == ATTRIBUTE_DATA) {
+            attribute_obj->read(dtype, buffer);
+            attribute_obj->close();
+        }
+        else if (source == DATASET_DATA) {
+            dataset_obj->read(buffer, dtype);
+            dataset_obj->close();
+        }
+        
+        val output = Uint8Array.new_(typed_memory_view(
+           datasize, buffer
+        ));
+        //val output = val(typed_memory_view(datasize, buffer));
+
+        free(buffer);
+        dtype.close();
+        dspace.close();
+        return output;
+
+    }
+}
+
 val get_attribute_data(H5File file, H5std_string obj_name, H5std_string attr_name) {
+    //H5File file = H5File(file_id);
     H5O_type_t type = file.childObjType(obj_name);
     //size_t datasize;
     //DataType dtype;
@@ -424,6 +584,15 @@ val get_attribute_data(H5File file, H5std_string obj_name, H5std_string attr_nam
 
     }
     
+    return get_data(attr_obj, ATTRIBUTE_DATA);
+}
+
+val get_dataset_data(H5File file, H5std_string dataset_name) {
+    DataSet ds = file.openDataSet(dataset_name);
+    return get_data(ds, DATASET_DATA);
+}
+
+/*
     size_t datasize = attr_obj.getInMemDataSize();
     DataType dtype = attr_obj.getDataType();
     htri_t is_variable_len = H5Tis_variable_str(dtype.getId());
@@ -432,34 +601,110 @@ val get_attribute_data(H5File file, H5std_string obj_name, H5std_string attr_nam
     int total_size = dspace.getSimpleExtentNpoints();
     size_t size = dtype.getSize();
     H5T_class_t dtype_class = dtype.getClass();
-    
+    bool is_vlstr = dtype.isVariableStr();
+
     if (dtype_class == H5T_STRING) 
-    //if (true)
     {
-        H5std_string readbuff;
-        attr_obj.read(dtype, readbuff);
-        attr_obj.close();
-        dtype.close();
-        dspace.close();
-        return val(readbuff);
+        StrType str_type = attr_obj.getStrType();
+        int ndims = dspace.getSimpleExtentNdims();
+        IntType int_type = attr_obj.getIntType();
+        //IntType int_type = IntType();
+        // int_type.setSign((H5T_sign_t)0);
+        // int_type.setSize((size_t)1);
+        // int_type.setOrder((H5T_order_t)0);
+        if (ndims > 0) {
+            val output = val::array();
+
+            void * buf = malloc(total_size*size);
+            attr_obj.read(dtype, buf);
+            char * bp = (char *) buf;
+            char * onestring = NULL;
+            if (!is_vlstr)
+                onestring = (char *)calloc(size, sizeof(char));
+
+            for (int i=0; i<total_size; i++) {
+                if (is_vlstr) {
+                    onestring = *(char **)((void *)bp);
+                }
+                else {
+                    strncpy(onestring, bp, size);
+                }
+                output.set(i, val(std::string(onestring)));
+                bp += size;
+            }
+            //uint8_t * buffer = (uint8_t*)malloc(total_size);
+            //attr_obj.read(int_type, buffer);
+            //val output = Uint8Array.new_(typed_memory_view(
+            //    datasize, buffer
+            //));
+            //val output = val(typed_memory_view(datasize, buffer));
+
+            //free(buffer);
+            //for (int i=0; i<total_size; i++) {
+            //    H5std_string readbuff;
+            //    attr_obj.read(str_type, readbuff);
+                //herr_t err = H5Treclaim(str_type.getId(), dspace.getId(), H5P_DEFAULT, &readbuff);
+            //    output.set(i, val(readbuff));
+            //}
+            //H5Treclaim(str_type.getId(), dspace.getId(), H5P_DEFAULT, buffer);
+            if (!is_vlstr)
+                if (onestring)
+                    free(onestring);
+
+            if (buf) {
+                if (is_vlstr)
+                    H5Treclaim(dtype.getId(), dspace.getId(), H5P_DEFAULT, buf);
+                free(buf);
+            }
+            return output;
+            
+        }
+        else {
+            H5std_string readbuff;
+            attr_obj.read(str_type, readbuff);
+            //cout << readbuff.length() << " length" << endl;
+            attr_obj.close();
+            dtype.close();
+            str_type.close();
+            dspace.close();
+            return val(readbuff);
+        }
+        
     }
     else 
     {
-        std::vector<char> vec (datasize);
-        char * buffer = vec.data();
-        printf("buffer address: %d\n", (int)buffer);
+        //std::vector<uint8_t> vec (datasize);
+        //const uint8_t * buffer = vec.data();
+        thread_local const val Uint8Array = val::global("Uint8Array");
+        uint8_t * buffer = (uint8_t*)malloc(size * total_size);
+        //void * buffer = malloc(size * total_size);
+        // new uint8_t[datasize];
+        //H5std_string readbuff;
+        //attr_obj.read(dtype, readbuff);
+        //const char* buffer = readbuff.c_str();
+        //printf("buffer address: %d\n", (int)buffer);
         //char* buffer = new char[datasize];
         attr_obj.read(dtype, buffer);
-        val output = val(typed_memory_view(datasize, buffer));
-        //delete[] buffer;
+        
+        // for (int i=0; i<datasize; i++) {
+        //     cout << (uint)buffer[i] << ",";
+        // }
+        //cout << endl;
+        val output = Uint8Array.new_(typed_memory_view(
+           datasize, buffer
+        ));
+        //val output = val(typed_memory_view(datasize, buffer));
+
+        free(buffer);
         attr_obj.close();
         dtype.close();
         dspace.close();
-        
         return output;
 
     }
 }
+
+*/
 
 /*
 IntType int_type = attr_obj.getIntType();
@@ -584,12 +829,14 @@ EMSCRIPTEN_BINDINGS(my_module) {
     function("get_link_types", &get_link_types);
     function("get_types", &get_types);
     function("get_types2", &get_types2);
+    function("get_type", &get_type);
     function("get_attrs_metadata", &get_attrs_metadata);
     function("get_dataset_metadata", &get_dataset_metadata);
     function("get_attribute_data", &get_attribute_data);
-    //function("get_dataset_data", &get_dataset_data);
+    function("get_attribute_metadata", &get_attribute_metadata);
+    function("get_dataset_data", &get_dataset_data);
     class_<H5File>("H5File")
-      .constructor<std::string, uint64_t>()
+      .constructor<std::string, int>()
       .function("getId", &H5File::getId)
       .function("getNumObjs", &H5File::getNumObjs)
       .function("get_types", &get_types2)
@@ -611,10 +858,19 @@ EMSCRIPTEN_BINDINGS(my_module) {
     ;
     class_<Group>("H5Group");
     //constant("H5L_type_t", H5L_type_t);
+    // FILE ACCESS
+    constant("H5F_ACC_RDONLY", H5F_ACC_RDONLY);
+    constant("H5F_ACC_RDWR", H5F_ACC_RDWR);
+    constant("H5F_ACC_TRUNC", H5F_ACC_TRUNC);
+    constant("H5F_ACC_EXCL", H5F_ACC_EXCL);
+    constant("H5F_ACC_CREAT", H5F_ACC_CREAT);
+    constant("H5F_ACC_SWMR_WRITE", H5F_ACC_SWMR_WRITE);
+    constant("H5F_ACC_SWMR_READ", H5F_ACC_SWMR_READ);
+    
     constant("H5P_DEFAULT", H5P_DEFAULT);
-    constant("H5O_TYPE_GROUP", H5O_TYPE_GROUP);
-    constant("H5O_TYPE_DATASET", H5O_TYPE_DATASET);
-    constant("H5O_TYPE_NAMED_DATATYPE", H5O_TYPE_NAMED_DATATYPE);
+    constant("H5O_TYPE_GROUP", (int)H5O_TYPE_GROUP);
+    constant("H5O_TYPE_DATASET", (int)H5O_TYPE_DATASET);
+    constant("H5O_TYPE_NAMED_DATATYPE", (int)H5O_TYPE_NAMED_DATATYPE);
 
     register_vector<std::string>("vector<string>");
 }

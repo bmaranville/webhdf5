@@ -141,6 +141,28 @@
         return keys;
 
       }
+      function get_attr(file, obj_name, attr_name) {
+        let attrs_metadata = Module.get_attrs_metadata(file, obj_name);
+        let metadata = attrs_metadata[attr_name];
+        let data = Module.get_attribute_data(file, obj_name, attr_name);
+        if (metadata.typestr == "string") {
+          return data;
+        }
+        else if (metadata.typestr == "int") {
+          let accessor = (metadata.signed) ? "Int" : "Uint";
+          accessor += ((metadata.size) * 8).toFixed() + "Array";
+          return new globalThis[accessor](data.buffer);
+
+        }
+        else if (metadata.typestr == "float") {
+          let accessor = "Float" + ((metadata.size) * 8).toFixed() + "Array";
+          return new globalThis[accessor](data.buffer);
+        }
+      }
+
+      class Attributes extends Object {
+        Symbol
+      }
     </script>
     <script async src="webhdf5.js"></script>
     <script>
