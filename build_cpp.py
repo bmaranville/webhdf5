@@ -30,7 +30,7 @@ def check_emscripten():
         return [False, None]
 
 
-def setup_build(prefix="build"):
+def setup_build(prefix="_build"):
     def gen_directories():
         cache = tempfile.mkdtemp(prefix="cache", dir=os.getcwd())
         print(cache)
@@ -62,14 +62,17 @@ def cleanup():
         rmtree(d)
 
 
+def make_executable(path):
+    import stat
+    st = os.stat(path)
+    os.chmod(path, st.st_mode | stat.S_IEXEC)
+
 def execute(command, in_dir):
     cwd = os.getcwd()
     os.chdir(in_dir)
-    my_env = os.environ.copy()
-    my_env["CFLAGS"] = "'-m32'"
     print(f"Running [{str(in_dir)}]...", " ".join(command))
     try:
-        subprocess.run(command, stdout=subprocess.PIPE, text=True, check=True, env=my_env)
+        subprocess.run(command, stdout=subprocess.PIPE, text=True, check=True)
     except subprocess.CalledProcessError as err:
         print(err.__cause__)
 
@@ -78,13 +81,27 @@ def execute(command, in_dir):
 
 def run_configure_script(build_dir, runner=["bash"]):
     configure_script = Path("..") / Path("libhdf5") / Path("configure")
-    execute(runner + [str(configure_script), "--disable-tests",
+    execute(runner + [str(configure_script),
+                      #"CFLAGS=-m32",
+                      #"CXXFLAGS=-m32",
+                      #"LDFLAGS=-m32",
+                      #"CFLAGS=-lz",
+                      "LIBS=-lz",
+                      "--disable-tests",
                       "--enable-cxx",
                       "--enable-build-mode=production",
                       "--disable-tools", "--disable-shared",
                       "--disable-deprecated-symbols"],
             build_dir)
 
+def run_cmake_script(build_dir, runner=[""]):
+    lib_path = Path("..") / Path("libhdf5")
+    execute(runner + ["cmake"] + [str(lib_path),
+                      #"CFLAGS=-m32",
+                      #"CXXFLAGS=-m32",
+                      #"LDFLAGS=-m32"
+                      ],
+            build_dir)
 
 def run_make(build_dir, runner=[]):
     execute(runner + ["make", "-j8"], build_dir)
@@ -103,9 +120,16 @@ def finalise(build_dir, exported_functions):
             + ["--bind", "../test.cpp"]
             + ["-I../libhdf5/src/", "-I./src"]
             + ["-I../libhdf5/c++/src/"]
+            + ["-I../libhdf5/hl/src/"]
             + ["-o", "webhdf5.js", 
                "-s", "WASM_BIGINT",
-               "-s", "EXTRA_EXPORTED_RUNTIME_METHODS=[\"ccall\", \"cwrap\"]",
+               "-s", "EXPORT_ES6=1",
+               "-s", "MODULARIZE=1",
+               "-s", "FORCE_FILESYSTEM=1",
+               "-s", "USE_ZLIB=1",
+               #"-s", "WASM_ASYNC_COMPILATION=0",
+               "-s", "EXTRA_EXPORTED_RUNTIME_METHODS=[\"ccall\", \"cwrap\", \"FS\"]",
+               #"-s", "EXPORTED_FUNCTIONS=[\"_free\"]"],
                "-s", exported_functions],
             build_dir)
     return [build_dir / Path("webhdf5.wasm"), build_dir / Path("webhdf5.js")]
@@ -118,10 +142,15 @@ def native_build():
 
     execute([str(autogen_script)], libhdf5_dir)
     run_configure_script(build_dir)
+    #run_cmake_script(build_dir)
     run_make(build_dir)
     copy(Path(build_dir) / Path("src") / Path("H5detect"), cache_dir)
     copy(Path(build_dir) / Path("src") / Path("H5make_libsettings"), cache_dir)
 
+def finalise_and_copy(build_dir, exported_functions=exported()):
+    wasm, js = finalise(Path(build_dir), exported_functions)
+    copy(wasm, Path("webhdf5.wasm"))
+    copy(js, Path("webhdf5.js"))
 
 def wasm_build(exported_functions):
     build_dir, cache_dir = setup_build()
@@ -130,6 +159,7 @@ def wasm_build(exported_functions):
     run_make(build_dir, ["emmake"])
 
     copy(Path(cache_dir) / Path("H5detect"), src_dir)
+    #make_executable(src_dir / Path("H5detect") )
     execute(["touch", "H5detect"], in_dir=src_dir)
     run_make(build_dir, ["emmake"])
 
@@ -137,9 +167,10 @@ def wasm_build(exported_functions):
     execute(["touch", "H5make_libsettings"], in_dir=src_dir)
     run_make(build_dir, ["emmake"])
 
-    wasm, js = finalise(Path(build_dir), exported_functions)
-    copy(wasm, Path("webhdf5.wasm"))
-    copy(js, Path("webhdf5.js"))
+    finalise_and_copy(build_dir)
+    #wasm, js = finalise(Path(build_dir), exported_functions)
+    #copy(wasm, Path("webhdf5.wasm"))
+    #copy(js, Path("webhdf5.js"))
 
     execute(["brotli", "-9", "webhdf5.wasm"], Path())
 
