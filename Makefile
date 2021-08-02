@@ -1,21 +1,22 @@
-NATIVE_LIBDIR=native_lib
-NATIVE_LIBS = $(NATIVE_LIBDIR)/libhdf5.a $(NATIVE_LIBDIR)/libhdf5_hl.a $(NATIVE_LIBDIR)/libhdf5_cpp.a
-NATIVE_HELPERS = $(NATIVE_LIBDIR)/H5detect $(NATIVE_LIBDIR)/H5make_libsettings
-NATIVE_BUILDDIR=native_build
-WASM_BUILDDIR = wasm_build
-WASM_LIBS = $(WASM_BUILDDIR)/src/.libs/libhdf5.a $(WASM_BUILDDIR)/c++/src/.libs/libhdf5_cpp.a $(WASM_BUILDDIR)/hl/src/.libs/libhdf5_hl.a
+NATIVE_BUILD_DIR = native_build
+NATIVE_HELPERS = $(NATIVE_BUILD_DIR)/src/H5detect $(NATIVE_BUILD_DIR)/src/H5make_libsettings
+WASM_BUILD_DIR = wasm_build
+WASM_LIBS = $(WASM_BUILD_DIR)/src/.libs/libhdf5.a $(WASM_BUILD_DIR)/c++/src/.libs/libhdf5_cpp.a $(WASM_BUILD_DIR)/hl/src/.libs/libhdf5_hl.a
 SRC=libhdf5
 CONFIGURE=$(SRC)/configure
+APP_DIR = dist
+APP = $(APP_DIR)/libhdf5_hl.js
 
-all: $(NATIVE_LIBS) $(WASM_LIBS)
+all: $(APP) 
+wasm: $(WASM_LIBS)
+native: $(NATIVE_HELPERS)
 
 $(CONFIGURE): $(SRC)/autogen.sh
 	cd $(SRC) && ./autogen.sh;
 
-$(NATIVE_LIBS) $(NATIVE_HELPERS): $(CONFIGURE)
-	mkdir -p $(NATIVE_BUILDDIR);
-	mkdir -p $(NATIVE_LIBDIR);
-	cd $(NATIVE_BUILD) \
+$(NATIVE_HELPERS): $(CONFIGURE)
+	mkdir -p $(NATIVE_BUILD_DIR);
+	cd $(NATIVE_BUILD_DIR) \
           && ../$(CONFIGURE) LIBS=-lz \
                       --disable-tests \
                       --enable-cxx \
@@ -23,16 +24,10 @@ $(NATIVE_LIBS) $(NATIVE_HELPERS): $(CONFIGURE)
                       --disable-tools \
                       --disable-shared \
                       --disable-deprecated-symbols;
-	cd $(NATIVE_BUILDDIR) && make -j8;
+	cd $(NATIVE_BUILD_DIR) && make -j8;
 
-	cp $(NATIVE_BUILDDIR)/src/.libs/*.a $(NATIVE_LIBDIR)/;
-	cp $(NATIVE_BUILDDIR)/c++/src/.libs/*.a $(NATIVE_LIBDIR)/;
-	cp $(NATIVE_BUILDDIR)/hl/src/.libs/*.a $(NATIVE_LIBDIR)/;
-	cp $(NATIVE_BUILDDIR)/src/H5detect $(NATIVE_LIBDIR)/;
-	cp $(NATIVE_BUILDDIR)/src/H5make_libsettings $(NATIVE_LIBDIR)/;
-
-$(WASM_LIBS): $(NATIVE_LIBS) $(NATIVE_HELPERS)
-	mkdir -p $(WASM_BUILDDIR)/src;
+$(WASM_LIBS): $(NATIVE_HELPERS)
+	mkdir -p $(WASM_BUILD_DIR)/src;
 	cd $(WASM_BUILDDIR) \
           && emconfigure ../$(CONFIGURE) LIBS=-lz \
                       --disable-tests \
@@ -41,7 +36,25 @@ $(WASM_LIBS): $(NATIVE_LIBS) $(NATIVE_HELPERS)
                       --disable-tools \
                       --disable-shared \
                       --disable-deprecated-symbols;
-	cp $(NATIVE_LIBDIR)/H5detect $(WASM_BUILDDIR)/src/ && chmod a+x $(WASM_BUILDDIR)/src/H5detect;
-	cp $(NATIVE_LIBDIR)/H5make_libsettings $(WASM_BUILDDIR)/src/ && chmod a+x $(WASM_BUILDDIR)/src/H5make_libsettings;
-	cd $(WASM_BUILDDIR) && emmake make -j8;
+	cp $(NATIVE_BUILD_DIR)/src/H5detect $(WASM_BUILD_DIR)/src/;
+	chmod a+x $(WASM_BUILD_DIR)/src/H5detect;
+	cp $(NATIVE_BUILD_DIR)/src/H5make_libsettings $(WASM_BUILD_DIR)/src/;
+	chmod a+x $(WASM_BUILD_DIR)/src/H5make_libsettings;
+	cd $(WASM_BUILD_DIR) && emmake make -j8;
 
+$(APP): h5js_lib.cpp $(WASM_LIBS)
+	emcc -O3 $(WASM_LIBS) h5js_lib.cpp -o $(APP_DIR)/h5js_lib.js \
+	  --bind \
+	  -I$(WASM_BUILD_DIR)/src \
+	  -I$(SRC)/src -I$(SRC)/c++/src -I$(SRC)/hl/src/ \
+	  --bind \
+	  -s WASM_BIGINT \
+	  -s EXPORT_ES6=1 \
+	  -s MODULARIZE=1 \
+	  -s FORCE_FILESYSTEM=1 \
+      -s USE_ZLIB=1 \
+	  -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']"
+	  
+clean:
+	rm -rf $(NATIVE_BUILD_DIR);
+	rm -rf $(WASM_BUILD_DIR);
