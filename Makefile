@@ -26,6 +26,9 @@ $(NATIVE_HELPERS): $(CONFIGURE)
                       --disable-deprecated-symbols;
 	cd $(NATIVE_BUILD_DIR) && make -j8;
 
+# Copy H5detect and H5detect.o, H5make_libsettings and H5make_libsettings.o
+# to wasm_build directory so that they can be used in this build:
+# (if .o files are not copied it tries to build tools again)
 $(WASM_LIBS): $(NATIVE_HELPERS)
 	mkdir -p $(WASM_BUILD_DIR)/src;
 	cd $(WASM_BUILD_DIR) \
@@ -36,9 +39,9 @@ $(WASM_LIBS): $(NATIVE_HELPERS)
                       --disable-tools \
                       --disable-shared \
                       --disable-deprecated-symbols;
-	cp $(NATIVE_BUILD_DIR)/src/H5detect $(WASM_BUILD_DIR)/src/;
+	cp $(NATIVE_BUILD_DIR)/src/H5detect* $(WASM_BUILD_DIR)/src/;
 	chmod a+x $(WASM_BUILD_DIR)/src/H5detect;
-	cp $(NATIVE_BUILD_DIR)/src/H5make_libsettings $(WASM_BUILD_DIR)/src/;
+	cp $(NATIVE_BUILD_DIR)/src/H5make_libsettings* $(WASM_BUILD_DIR)/src/;
 	chmod a+x $(WASM_BUILD_DIR)/src/H5make_libsettings;
 	cd $(WASM_BUILD_DIR) && emmake make -j8;
 
@@ -59,4 +62,4 @@ $(APP): h5js_lib.cpp $(WASM_LIBS)
 clean:
 	rm -rf $(NATIVE_BUILD_DIR);
 	rm -rf $(WASM_BUILD_DIR);
-	rm $(APP_DIR)/h5js_lib.*;
+	rm -f $(APP_DIR)/h5js_lib.*;
