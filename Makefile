@@ -18,7 +18,7 @@ $(CONFIGURE): $(SRC)/autogen.sh
 $(NATIVE_HELPERS): $(CONFIGURE)
 	mkdir -p $(NATIVE_BUILD_DIR);
 	cd $(NATIVE_BUILD_DIR) \
-          && ../$(CONFIGURE) --host=i686-linux-gnu "CFLAGS=-m32" "CXXFLAGS=-m32" "LDFLAGS=-m32" \
+          && ../$(CONFIGURE) \
                       --disable-tests \
                       --disable-deprecated-symbols;
 	cd $(NATIVE_BUILD_DIR)/src && make H5detect H5make_libsettings;
