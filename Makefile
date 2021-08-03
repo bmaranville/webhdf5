@@ -28,7 +28,7 @@ $(NATIVE_HELPERS): $(CONFIGURE)
 
 $(WASM_LIBS): $(NATIVE_HELPERS)
 	mkdir -p $(WASM_BUILD_DIR)/src;
-	cd $(WASM_BUILDDIR) \
+	cd $(WASM_BUILD_DIR) \
           && emconfigure ../$(CONFIGURE) LIBS=-lz \
                       --disable-tests \
                       --enable-cxx \
@@ -42,6 +42,7 @@ $(WASM_LIBS): $(NATIVE_HELPERS)
 	chmod a+x $(WASM_BUILD_DIR)/src/H5make_libsettings;
 	cd $(WASM_BUILD_DIR) && emmake make -j8;
 
+
 $(APP): h5js_lib.cpp $(WASM_LIBS)
 	emcc -O3 $(WASM_LIBS) h5js_lib.cpp -o $(APP_DIR)/h5js_lib.js \
 	  --bind \
@@ -52,7 +53,7 @@ $(APP): h5js_lib.cpp $(WASM_LIBS)
 	  -s EXPORT_ES6=1 \
 	  -s MODULARIZE=1 \
 	  -s FORCE_FILESYSTEM=1 \
-      -s USE_ZLIB=1 \
+	  -s USE_ZLIB=1 \
 	  -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']"
 	  
 clean:
