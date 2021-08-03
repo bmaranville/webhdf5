@@ -124,7 +124,7 @@ class HasAttrs {
 
 }
 
-class Group extends HasAttrs {
+export class Group extends HasAttrs {
     constructor(file_obj, path) {
         super();
         this.path = path;
@@ -183,7 +183,7 @@ export class File extends Group {
 
 
 
-class Dataset extends HasAttrs {
+export class Dataset extends HasAttrs {
     constructor(file_obj, path) {
         super();
         this.path = path;
