@@ -1,7 +1,7 @@
-import ModuleFactory from './h5js_lib.js';
+import ModuleFactory from './h5js_module.js';
 
-export var webhdf5 = null;
-export const ready = ModuleFactory().then((result) => { webhdf5 = result });
+export var Module = null;
+export const ready = ModuleFactory().then((result) => { Module = result });
 
 export const UPLOADED_FILES = [];
 
@@ -11,7 +11,7 @@ export function upload_file() {
     let reader = new FileReader();
     reader.onloadend = function (evt) {
         let data = evt.target.result;
-        webhdf5.FS.writeFile(datafilename, new Uint8Array(data));
+        Module.FS.writeFile(datafilename, new Uint8Array(data));
         if (!UPLOADED_FILES.includes(datafilename)) {
             UPLOADED_FILES.push(datafilename);
             console.log("file loaded:", datafilename);
@@ -57,8 +57,8 @@ class Attribute {
 }
 
 function get_attr(file_obj, obj_name, attr_name) {
-    let metadata = webhdf5.get_attribute_metadata(file_obj, obj_name, attr_name);
-    let data = webhdf5.get_attribute_data(file_obj, obj_name, attr_name);
+    let metadata = Module.get_attribute_metadata(file_obj, obj_name, attr_name);
+    let data = Module.get_attribute_data(file_obj, obj_name, attr_name);
     return process_data(data, metadata)
 }
 
@@ -106,7 +106,7 @@ function metadata_to_dtype(metadata) {
 
 class HasAttrs {
     get attrs() {
-        let attrs_metadata = webhdf5.get_attrs_metadata(this.file_obj, this.path);
+        let attrs_metadata = Module.get_attrs_metadata(this.file_obj, this.path);
         let attrs = {};
         for (let [name, metadata] of Object.entries(attrs_metadata)) {
             Object.defineProperty(attrs, name, {
@@ -132,7 +132,7 @@ export class Group extends HasAttrs {
     }
 
     keys() {
-        return webhdf5.get_names2(this.file_obj, this.path);
+        return Module.get_names2(this.file_obj, this.path);
     }
 
     * values() {
@@ -150,7 +150,7 @@ export class Group extends HasAttrs {
     }
 
     get_type(obj_path) {
-        return webhdf5.get_type(this.file_obj, obj_path);
+        return Module.get_type(this.file_obj, obj_path);
     }
 
     get(obj_name) {
@@ -158,10 +158,10 @@ export class Group extends HasAttrs {
         fullpath = normalizePath(fullpath);
 
         let type = this.get_type(fullpath);
-        if (type == webhdf5.H5O_TYPE_GROUP) {
+        if (type == Module.H5O_TYPE_GROUP) {
             return new Group(this.file_obj, fullpath);
         }
-        else if (type == webhdf5.H5O_TYPE_DATASET) {
+        else if (type == Module.H5O_TYPE_DATASET) {
             return new Dataset(this.file_obj, fullpath);
         }
     }
@@ -174,8 +174,8 @@ export class Group extends HasAttrs {
 export class File extends Group {
     constructor(filename, mode = "r") {
         super(null, "/");
-        let h5_mode = webhdf5[ACCESS_MODES[mode]];
-        this.file_obj = new webhdf5.H5File(filename, h5_mode);
+        let h5_mode = Module[ACCESS_MODES[mode]];
+        this.file_obj = new Module.H5File(filename, h5_mode);
         this.filename = filename;
         this.mode = mode;
     }
@@ -191,7 +191,7 @@ export class Dataset extends HasAttrs {
     }
 
     get metadata() {
-        return webhdf5.get_dataset_metadata(this.file_obj, this.path);
+        return Module.get_dataset_metadata(this.file_obj, this.path);
     }
 
     get dtype() {
@@ -204,7 +204,7 @@ export class Dataset extends HasAttrs {
 
     get value() {
         let metadata = this.metadata;
-        let data = webhdf5.get_dataset_data(this.file_obj, this.path);
+        let data = Module.get_dataset_data(this.file_obj, this.path);
         return process_data(data, metadata);
     }
 }
