@@ -59,3 +59,4 @@ $(APP): h5js_lib.cpp $(WASM_LIBS)
 clean:
 	rm -rf $(NATIVE_BUILD_DIR);
 	rm -rf $(WASM_BUILD_DIR);
+	rm $(APP_DIR)/h5js_lib.*;
