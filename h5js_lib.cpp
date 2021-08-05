@@ -256,19 +256,19 @@ val get_attribute_metadata(H5File file, H5std_string obj_name, H5std_string attr
     return attr;
 }
 
-val get_data(AbstractDs & ds, int source) {
+val get_data(AbstractDs & ds, int source, DataSpace* dspace, DataSpace* memspace) {
     
-    size_t datasize = ds.getInMemDataSize();
+    //size_t datasize = ds.getInMemDataSize();
     DataType dtype = ds.getDataType();
     htri_t is_variable_len = H5Tis_variable_str(dtype.getId());
-
-    DataSpace dspace = ds.getSpace();
-    int total_size = dspace.getSimpleExtentNpoints();
+    int total_size = memspace->getSimpleExtentNpoints();
+    // std::cout << total_size << std::endl;
     size_t size = dtype.getSize();
     H5T_class_t dtype_class = dtype.getClass();
     bool is_vlstr = dtype.isVariableStr();
     Attribute * attribute_obj;
     DataSet * dataset_obj;
+    val output = val::undefined();
     
     if (source == ATTRIBUTE_DATA) {
         attribute_obj = (Attribute *) &ds;
@@ -279,18 +279,16 @@ val get_data(AbstractDs & ds, int source) {
 
     if (dtype_class == H5T_STRING) 
     {
-        StrType str_type = ds.getStrType();
-        int ndims = dspace.getSimpleExtentNdims();
-        
+        int ndims = memspace->getSimpleExtentNdims();       
         if (ndims > 0) {
-            val output = val::array();
+            output = val::array();
 
             void * buf = malloc(total_size*size);
             if (source == ATTRIBUTE_DATA) {
                 attribute_obj->read(dtype, buf);
             }
             else if (source == DATASET_DATA) {
-                dataset_obj->read(buf, dtype);
+                dataset_obj->read(buf, dtype, *memspace, *dspace);
             }
             char * bp = (char *) buf;
             char * onestring = NULL;
@@ -314,11 +312,9 @@ val get_data(AbstractDs & ds, int source) {
 
             if (buf) {
                 if (is_vlstr)
-                    H5Treclaim(dtype.getId(), dspace.getId(), H5P_DEFAULT, buf);
+                    H5Treclaim(dtype.getId(), memspace->getId(), H5P_DEFAULT, buf);
                 free(buf);
-            }
-            return output;
-            
+            }            
         }
         else {
             H5std_string readbuf;
@@ -327,21 +323,14 @@ val get_data(AbstractDs & ds, int source) {
                 attribute_obj->close();
             }
             else if (source == DATASET_DATA) {
-                dataset_obj->read(readbuf, dtype);
+                dataset_obj->read(readbuf, dtype, *memspace, *dspace);
                 dataset_obj->close();
             }
-            //cout << readbuff.length() << " length" << endl;
-            dtype.close();
-            str_type.close();
-            dspace.close();
-            return val(readbuf);
-        }
-        
+            output = val(readbuf);
+        }        
     }
     else 
     {
-        //std::vector<uint8_t> vec (datasize);
-        //const uint8_t * buffer = vec.data();
         thread_local const val Uint8Array = val::global("Uint8Array");
         uint8_t * buffer = (uint8_t*)malloc(size * total_size);
         
@@ -350,21 +339,22 @@ val get_data(AbstractDs & ds, int source) {
             attribute_obj->close();
         }
         else if (source == DATASET_DATA) {
-            dataset_obj->read(buffer, dtype);
+            dataset_obj->read(buffer, dtype, *memspace, *dspace);
             dataset_obj->close();
         }
         
-        val output = Uint8Array.new_(typed_memory_view(
-           datasize, buffer
+        output = Uint8Array.new_(typed_memory_view(
+           total_size*size, buffer
         ));
-        //val output = val(typed_memory_view(datasize, buffer));
 
         free(buffer);
-        dtype.close();
-        dspace.close();
-        return output;
-
     }
+    
+    dtype.close();
+    dspace->close();
+    memspace->close();
+    
+    return output;
 }
 
 val get_attribute_data(H5File file, H5std_string obj_name, H5std_string attr_name) {
@@ -394,12 +384,41 @@ val get_attribute_data(H5File file, H5std_string obj_name, H5std_string attr_nam
 
     }
     
-    return get_data(attr_obj, ATTRIBUTE_DATA);
+    DataSpace dspace = attr_obj.getSpace();
+    return get_data(attr_obj, ATTRIBUTE_DATA, &dspace, &dspace);
 }
 
-val get_dataset_data(H5File file, H5std_string dataset_name) {
+//val get_dataset_data(H5File file, H5std_string dataset_name, std::unique_ptr<hsize_t[]> count_out, std::unique_ptr<hsize_t[]> offset_out) {
+val get_dataset_data(H5File file, H5std_string dataset_name, val count_out, val offset_out) {
     DataSet ds = file.openDataSet(dataset_name);
-    return get_data(ds, DATASET_DATA);
+    DataSpace memspace;
+    DataSpace dspace = ds.getSpace();
+    if (count_out != val::null() && offset_out != val::null()) {
+         std::vector<hsize_t> count = vecFromJSArray<hsize_t>(count_out);
+         std::vector<hsize_t> offset = vecFromJSArray<hsize_t>(offset_out);
+         memspace = *(new DataSpace(count.size(), &count[0]));
+        //  std::cout << "count size: " << count.size() << std::endl;
+        //  for (int i=0; i<count.size(); i++) {
+        //    std::cout << i << ", " << count[i] << std::endl;
+        //  }
+        //  std::cout << "offset size: " << offset.size() << std::endl;
+        //  for (int j=0; j<offset.size(); j++) {
+        //    std::cout << j << ", " << offset[j] << std::endl;
+        //  }
+         dspace.selectHyperslab(H5S_SELECT_SET, &count[0], &offset[0]);
+         memspace.selectAll();
+    // if (count_out && offset_out) {
+    //   memspace.selectHyperslab(H5S_SELECT_SET, (hsize_t *)count_out, (hsize_t *)offset_out);
+    }
+    else {
+     dspace.selectAll();
+     memspace = *(new DataSpace(dspace));
+    }
+    /*
+          memspace.selectHyperslab( H5S_SELECT_SET, count_out, offset_out );
+          std::vector<T> vecFromJSArray(const val &v)
+    */
+    return get_data(ds, DATASET_DATA, &dspace, &memspace);
 }
 
 val get_attrs_metadata(H5File file, std::string obj_name) {
