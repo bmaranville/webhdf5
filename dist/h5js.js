@@ -1,7 +1,7 @@
 import ModuleFactory from './h5js_module.js';
 
 export var Module = null;
-export const ready = ModuleFactory().then((result) => { Module = result });
+export const ready = ModuleFactory({noInitialRun: true}).then((result) => { Module = result });
 
 export const UPLOADED_FILES = [];
 
@@ -204,7 +204,30 @@ export class Dataset extends HasAttrs {
 
     get value() {
         let metadata = this.metadata;
-        let data = Module.get_dataset_data(this.file_obj, this.path);
+        let data = Module.get_dataset_data(this.file_obj, this.path, null, null);
+        return process_data(data, metadata);
+    }
+
+    slice(ranges) {
+        // interpret ranges as [start, stop], with one per dim.
+        let metadata = this.metadata;
+        let shape = metadata.shape;
+        let ndims = shape.length;
+        let count = shape.map((s, i) => BigInt(Math.min(s, ranges?.[i]?.[1] ?? s) - Math.max(0, ranges?.[i]?.[0] ?? 0)));
+        let offset = shape.map((s, i) => BigInt(Math.min(s, Math.max(0, ranges?.[i]?.[0] ?? 0))));
+        //let count_array = new BigUint64Array(count);
+        //let offset_array = new BigUint64Array(offset);
+        //let count_ptr = Module._malloc(count_array.byteLength);
+        //let offset_ptr = Module._malloc(offset_array.byteLength);
+        //Module.HEAPU8.set(new Uint8Array(count_array.buffer), count_ptr);
+        //Module.HEAPU8.set(new Uint8Array(offset_array.buffer), offset_ptr);
+        //console.log(count, count_array, count_ptr);
+        //console.log(offset, offset_array, offset_ptr);
+        //let data = Module.get_dataset_data(this.file_obj, this.path, count_ptr, offset_ptr);
+        console.log(count, offset);
+        let data = Module.get_dataset_data(this.file_obj, this.path, count, offset);
+        //Module._free(count_ptr);
+        //Module._free(offset_ptr);
         return process_data(data, metadata);
     }
 }
