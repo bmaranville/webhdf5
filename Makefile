@@ -1,7 +1,7 @@
 NATIVE_BUILD_DIR = native_build
 NATIVE_HELPERS = $(NATIVE_BUILD_DIR)/src/H5detect $(NATIVE_BUILD_DIR)/src/H5make_libsettings
 WASM_BUILD_DIR = wasm_build
-WASM_LIBS = $(WASM_BUILD_DIR)/src/.libs/libhdf5.a $(WASM_BUILD_DIR)/c++/src/.libs/libhdf5_cpp.a $(WASM_BUILD_DIR)/hl/src/.libs/libhdf5_hl.a
+WASM_LIBS = $(WASM_BUILD_DIR)/hdf5/lib/*.a
 SRC=libhdf5
 CONFIGURE=$(SRC)/configure
 APP_DIR = dist
@@ -40,18 +40,24 @@ $(WASM_LIBS): $(NATIVE_HELPERS)
 	chmod a+x $(WASM_BUILD_DIR)/src/H5detect;
 	cp $(NATIVE_BUILD_DIR)/src/H5make_libsettings* $(WASM_BUILD_DIR)/src/;
 	chmod a+x $(WASM_BUILD_DIR)/src/H5make_libsettings;
-	cd $(WASM_BUILD_DIR) && emmake make -j8;
+	cd $(WASM_BUILD_DIR) && emmake make -j8 && make install;
 
 $(LIBHDF5): $(WASM_LIBS)
-	emcc -O3 $(WASM_BUILD_DIR)/src/.libs/libhdf5.a $(WASM_BUILD_DIR)/hl/src/.libs/libhdf5_hl.a \
+	emcc -O3 $(WASM_BUILD_DIR)/hdf5/lib/libhdf5.a $(WASM_BUILD_DIR)/hdf5/lib/libhdf5_hl.a \
 	  -o $(APP_DIR)/libhdf5.html \
 	  -I$(WASM_BUILD_DIR)/src \
 	  -I$(SRC)/src -I$(SRC)/hl/src/ \
+	  -fPIC \
 	  -s WASM_BIGINT \
 	  -s FORCE_FILESYSTEM=1 \
 	  -s USE_ZLIB=1 \
 	  -s EXPORT_ALL=1 \
-	  -s LINKABLE=1
+	  -s LINKABLE=1 \
+	  -s INCLUDE_FULL_LIBRARY=1 \
+	  -s EXTRA_EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']"
+
+
+#	  -s EXTRA_EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']"
 
 $(APP): h5js_lib.cpp $(WASM_LIBS)
 	emcc -O3 $(WASM_LIBS) h5js_lib.cpp -o $(APP_DIR)/h5js_module.js \
@@ -64,6 +70,7 @@ $(APP): h5js_lib.cpp $(WASM_LIBS)
 	  -s MODULARIZE=1 \
 	  -s FORCE_FILESYSTEM=1 \
 	  -s USE_ZLIB=1 \
+	  -s ALLOW_MEMORY_GROWTH=1 \
 	  -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']"
 	  
 clean:
