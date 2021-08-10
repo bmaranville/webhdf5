@@ -11,8 +11,8 @@
 
 using namespace emscripten;
 
-EM_JS(void, throw_error, (const char* string_error), {
-  throw(UTF8ToString(string_error));
+EM_JS(void, throw_error, (const char *string_error), {
+    throw(UTF8ToString(string_error));
 });
 
 herr_t name_callback(hid_t loc_id, const char *name, const H5L_info_t *linfo, void *opdata)
@@ -38,12 +38,13 @@ val get_child_names(hid_t loc_id, std::string group_name)
     herr_t status;
 
     hid_t grp = H5Gopen2(loc_id, group_name.c_str(), H5P_DEFAULT);
-    if (grp < 0) {
+    if (grp < 0)
+    {
         throw_error("error - name not defined!");
         return val::null();
     }
 
-    val names = val::object();
+    val names = val::array();
     H5G_info_t grp_info;
     status = H5Gget_info(grp, &grp_info);
     hsize_t numObjs = grp_info.nlinks;
@@ -70,12 +71,13 @@ val get_child_types(hid_t loc_id, const std::string group_name_string)
     unsigned crt_order_flags;
     size_t namesize;
     herr_t status;
-    H5O_info_t *oinfo;
+    H5O_info_t oinfo;
     //const char * group_name = &group_name_string[0];
     const char *group_name = group_name_string.c_str();
 
     hid_t grp = H5Gopen2(loc_id, group_name, H5P_DEFAULT);
-    if (grp < 0) {
+    if (grp < 0)
+    {
         throw_error("error - name not defined!");
         return val::null();
     }
@@ -94,12 +96,20 @@ val get_child_types(hid_t loc_id, const std::string group_name_string)
         namesize = H5Lget_name_by_idx(loc_id, group_name, index, H5_ITER_INC, i, nullptr, 0, H5P_DEFAULT);
         char *name = new char[namesize + 1];
         status = H5Lget_name_by_idx(loc_id, group_name, index, H5_ITER_INC, i, name, namesize + 1, H5P_DEFAULT);
-        status = H5Oget_info_by_idx(loc_id, group_name, index, H5_ITER_INC, i, oinfo, H5O_INFO_BASIC, H5P_DEFAULT);
-        names.set(val(std::string(name)), (int)(oinfo->type));
+        status = H5Oget_info_by_idx(loc_id, group_name, index, H5_ITER_INC, i, &oinfo, H5O_INFO_BASIC, H5P_DEFAULT);
+        names.set(val(std::string(name)), (int)oinfo.type);
         delete[] name;
     }
     status = H5Gclose(grp);
     return names;
+}
+
+val get_type(hid_t loc_id, const std::string obj_name_string)
+{
+    H5O_info_t oinfo;
+    const char * obj_name = obj_name_string.c_str();
+    herr_t status = H5Oget_info_by_name(loc_id, obj_name, &oinfo, H5O_INFO_BASIC, H5P_DEFAULT);
+    return val((int)oinfo.type);
 }
 
 val get_attribute_names(hid_t loc_id, const std::string group_name_string)
@@ -114,14 +124,15 @@ val get_attribute_names(hid_t loc_id, const std::string group_name_string)
 
     val names = val::array();
     hid_t grp = H5Gopen2(loc_id, group_name, H5P_DEFAULT);
-    if (grp < 0) {
+    if (grp < 0)
+    {
         throw_error("error - name not defined!");
         return val::null();
     }
 
-    H5O_info_t *oinfo;
-    status = H5Oget_info(grp, oinfo, H5O_INFO_NUM_ATTRS);
-    hsize_t numAttrs = oinfo->num_attrs;
+    H5O_info_t oinfo;
+    status = H5Oget_info(grp, &oinfo, H5O_INFO_NUM_ATTRS);
+    hsize_t numAttrs = oinfo.num_attrs;
 
     gcpl_id = H5Gget_create_plist(grp);
     status = H5Pget_attr_creation_order(gcpl_id, &crt_order_flags);
@@ -141,8 +152,9 @@ val get_attribute_names(hid_t loc_id, const std::string group_name_string)
     return names;
 }
 
-val get_dtype_metadata(hid_t dtype) {
-    
+val get_dtype_metadata(hid_t dtype)
+{
+
     val attr = val::object();
 
     attr.set("signed", (bool)(H5Tget_sign(dtype) > 0));
@@ -161,15 +173,17 @@ val get_dtype_metadata(hid_t dtype) {
         attr.set("cset", -1);
     }
 
-    if (dtype_class == H5T_COMPOUND) {
+    if (dtype_class == H5T_COMPOUND)
+    {
         val compound_type = val::object();
         val members = val::array();
-        int nmembers =  H5Tget_nmembers(dtype);
+        int nmembers = H5Tget_nmembers(dtype);
         compound_type.set("nmembers", nmembers);
-        for (unsigned n=0; n<nmembers; n++) {
+        for (unsigned n = 0; n < nmembers; n++)
+        {
             hid_t member_dtype = H5Tget_member_type(dtype, n);
             val member = get_dtype_metadata(member_dtype);
-            char * member_name = H5Tget_member_name(dtype, n);
+            char *member_name = H5Tget_member_name(dtype, n);
             member.set("name", std::string(member_name));
             H5free_memory(member_name);
             size_t member_offset = H5Tget_member_offset(dtype, n);
@@ -219,7 +233,8 @@ val get_attribute_metadata(hid_t loc_id, const std::string group_name_string, co
     const char *attribute_name = attribute_name_string.c_str();
 
     htri_t exists = H5Aexists_by_name(loc_id, group_name, attribute_name, H5P_DEFAULT);
-    if (exists < 1) {
+    if (exists < 1)
+    {
         throw_error("error - name not defined!");
         return val::null();
     }
@@ -243,7 +258,8 @@ val get_dataset_metadata(hid_t loc_id, const std::string dataset_name_string)
     const char *dataset_name = dataset_name_string.c_str();
 
     ds_id = H5Dopen2(loc_id, dataset_name, H5P_DEFAULT);
-    if (ds_id < 0) {
+    if (ds_id < 0)
+    {
         throw_error("error - name not defined!");
         return val::null();
     }
@@ -267,7 +283,8 @@ val get_dataset_data(hid_t loc_id, const std::string dataset_name_string, val co
     const char *dataset_name = dataset_name_string.c_str();
 
     ds_id = H5Dopen2(loc_id, dataset_name, H5P_DEFAULT);
-    if (ds_id < 0) {
+    if (ds_id < 0)
+    {
         throw_error("error - name not defined!");
         return val::null();
     }
@@ -312,27 +329,52 @@ val get_attribute_data(hid_t loc_id, const std::string group_name_string, const 
     hid_t dspace;
     hid_t dtype;
     herr_t status;
-    const char *group_name = group_name_string.c_str();
-    const char *attribute_name = attribute_name_string.c_str();
+    const char *group_name = &group_name_string[0];
+    const char *attribute_name = &attribute_name_string[0];
 
     htri_t exists = H5Aexists_by_name(loc_id, group_name, attribute_name, H5P_DEFAULT);
-    if (exists < 1) {
+    if (exists < 1)
+    {
         throw_error("error - name not defined!");
         return val::null();
     }
     attr_id = H5Aopen_by_name(loc_id, group_name, attribute_name, H5P_DEFAULT, H5P_DEFAULT);
     dtype = H5Aget_type(attr_id);
     dspace = H5Aget_space(attr_id);
-    
+
     int total_size = H5Sget_simple_extent_npoints(dspace);
+    std::cout << H5Sget_simple_extent_ndims(dspace) << std::endl;
     size_t size = H5Tget_size(dtype);
+    htri_t is_vlstr = H5Tis_variable_str(dtype);
 
     thread_local const val Uint8Array = val::global("Uint8Array");
-    uint8_t *buffer = (uint8_t *)malloc(size * total_size);
 
+    void * buffer = malloc(size * total_size);
     status = H5Aread(attr_id, dtype, buffer);
-    val output = Uint8Array.new_(typed_memory_view(
-        total_size * size, buffer));
+    val output = val::null();
+
+    if (is_vlstr) {
+        output = val::array();
+        char * bp = (char *) buffer;
+        char * onestring = NULL;
+        for (int i=0; i<total_size; i++) {
+            onestring = *(char **)((void *)bp);
+            output.set(i, val(std::string(onestring)));
+            bp += size;
+        }
+        if (onestring)
+            free(onestring);
+    }
+    else {
+        output = Uint8Array.new_(typed_memory_view(
+            total_size * size, (uint8_t *)buffer));
+    }
+
+    if (buffer) {
+        if (is_vlstr)
+            H5Treclaim(dtype, dspace, H5P_DEFAULT, buffer);
+        free(buffer);
+    }            
 
     free(buffer);
 
@@ -347,6 +389,7 @@ EMSCRIPTEN_BINDINGS(hdf5)
     function("get_keys", &get_keys_vector);
     function("get_names", &get_child_names);
     function("get_types", &get_child_types);
+    function("get_type", &get_type);
     function("get_attribute_names", &get_attribute_names);
     function("get_attribute_metadata", &get_attribute_metadata);
     function("get_dataset_metadata", &get_dataset_metadata);
