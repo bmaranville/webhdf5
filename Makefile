@@ -1,52 +1,57 @@
 NATIVE_BUILD_DIR = native_build
 NATIVE_HELPERS = $(NATIVE_BUILD_DIR)/src/H5detect $(NATIVE_BUILD_DIR)/src/H5make_libsettings
 WASM_BUILD_DIR = wasm_build
-WASM_LIBS = $(WASM_BUILD_DIR)/hdf5/lib/*.a
-SRC=libhdf5
-CONFIGURE=$(SRC)/configure
+WASM_LIB_DIR = $(WASM_BUILD_DIR)/hdf5/lib
+WASM_INCLUDE_DIR = $(WASM_BUILD_DIR)/hdf5/include
+WASM_LIBS = $(WASM_LIB_DIR)/libhdf5.a $(WASM_LIB_DIR)/libhdf5_hl.a 
+
+#WASM_LIBS = libhdf5.a
+HDF5_SRC=libhdf5
+SRC = src
 APP_DIR = dist
-APP = $(APP_DIR)/h5js_module.js
+APP = $(APP_DIR)/h5js_util.js
 LIBHDF5 = $(APP_DIR)/libhdf5.js
 
+app: $(APP)
 all: $(APP) $(LIBHDF5) 
 wasm: $(WASM_LIBS)
 native: $(NATIVE_HELPERS)
 
-$(CONFIGURE): $(SRC)/autogen.sh
-	cd $(SRC) && ./autogen.sh;
+C_FLAGS = \
+   -Wno-incompatible-pointer-types-discards-qualifiers \
+   -Wno-misleading-indentation \
+   -Wno-missing-braces \
+   -Wno-self-assign \
+   -Wno-sometimes-uninitialized \
+   -Wno-unknown-warning-option \
+   -Wno-unused-but-set-variable \
+   -Wno-unused-function \
+   -Wno-unused-variable \
 
-$(NATIVE_HELPERS): $(CONFIGURE)
-	mkdir -p $(NATIVE_BUILD_DIR);
-	cd $(NATIVE_BUILD_DIR) \
-          && ../$(CONFIGURE) \
-                      --disable-tests \
-                      --disable-deprecated-symbols;
-	cd $(NATIVE_BUILD_DIR)/src && make H5detect H5make_libsettings;
-
-# Copy H5detect and H5detect.o, H5make_libsettings and H5make_libsettings.o
-# to wasm_build directory so that they can be used in this build:
-# (if .o files are not copied it tries to build tools again)
-$(WASM_LIBS): $(NATIVE_HELPERS)
-	mkdir -p $(WASM_BUILD_DIR)/src;
+$(WASM_LIBS):
+	mkdir -p $(WASM_BUILD_DIR);
 	cd $(WASM_BUILD_DIR) \
-          && emconfigure ../$(CONFIGURE) LIBS=-lz \
-                      --disable-tests \
-                      --enable-cxx \
-                      --enable-build-mode=production \
-                      --disable-tools \
-                      --disable-shared \
-                      --disable-deprecated-symbols;
-	cp $(NATIVE_BUILD_DIR)/src/H5detect* $(WASM_BUILD_DIR)/src/;
-	chmod a+x $(WASM_BUILD_DIR)/src/H5detect;
-	cp $(NATIVE_BUILD_DIR)/src/H5make_libsettings* $(WASM_BUILD_DIR)/src/;
-	chmod a+x $(WASM_BUILD_DIR)/src/H5make_libsettings;
-	cd $(WASM_BUILD_DIR) && emmake make -j8 && make install;
+        && emcmake cmake ../$(HDF5_SRC) \
+		-DCMAKE_INSTALL_PREFIX=hdf5 \
+	    -DH5_HAVE_GETPWUID=0 \
+		-DH5_HAVE_SIGNAL=0 \
+        -DBUILD_SHARED_LIBS=0 \
+        -DBUILD_STATIC_LIBS=1 \
+        -DBUILD_TESTING=0 \
+        -DCMAKE_C_FLAGS=$(C_FLAGS) \
+        -DHDF5_BUILD_EXAMPLES=0 \
+        -DHDF5_BUILD_TOOLS=0 \
+        -DHDF5_ENABLE_Z_LIB_SUPPORT=1 \
+        -DHDF5_BUILD_MODE_PRODUCTION=1;
+	-cd $(WASM_BUILD_DIR) && grep -rl "\-l\"\-O0" | xargs sed -i 's/-l//g';
+	-cd $(WASM_BUILD_DIR) && grep -rl 'H5detect.js /' | xargs sed -i 's/H5detect.js \//H5detect.js > \//g';
+	-cd $(WASM_BUILD_DIR) && grep -rl 'H5make_libsettings.js /' | xargs sed -i 's/H5make_libsettings.js \//H5make_libsettings.js > \//g';
+	cd $(WASM_BUILD_DIR) && emmake make -j8 install;
 
 $(LIBHDF5): $(WASM_LIBS)
-	emcc -O3 $(WASM_BUILD_DIR)/hdf5/lib/libhdf5.a $(WASM_BUILD_DIR)/hdf5/lib/libhdf5_hl.a \
+	emcc -O3 $(WASM_LIBS) \
 	  -o $(APP_DIR)/libhdf5.html \
-	  -I$(WASM_BUILD_DIR)/src \
-	  -I$(SRC)/src -I$(SRC)/hl/src/ \
+	  -I$(WASM_INCLUDE_DIR)/src \
 	  -fPIC \
 	  -s WASM_BIGINT \
 	  -s FORCE_FILESYSTEM=1 \
@@ -59,22 +64,22 @@ $(LIBHDF5): $(WASM_LIBS)
 
 #	  -s EXTRA_EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']"
 
-$(APP): h5js_lib.cpp $(WASM_LIBS)
-	emcc -O3 $(WASM_LIBS) h5js_lib.cpp -o $(APP_DIR)/h5js_module.js \
-	  --bind \
-	  -I$(WASM_BUILD_DIR)/src \
-	  -I$(SRC)/src -I$(SRC)/c++/src -I$(SRC)/hl/src/ \
-	  --bind \
-	  -s WASM_BIGINT \
-	  -s EXPORT_ES6=1 \
-	  -s MODULARIZE=1 \
-	  -s FORCE_FILESYSTEM=1 \
-	  -s USE_ZLIB=1 \
-	  -s ALLOW_MEMORY_GROWTH=1 \
-	  -s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']"
+$(APP): $(SRC)/hdf5_util.cc $(WASM_LIBS)
+	emcc -O3 $(WASM_LIBS) $(SRC)/hdf5_util.cc -o $(APP_DIR)/hdf5_util.js \
+        -I$(WASM_INCLUDE_DIR) \
+        --bind  \
+        -s ALLOW_TABLE_GROWTH=1 \
+        -s ALLOW_MEMORY_GROWTH=1 \
+		-s WASM_BIGINT \
+		-s EXPORT_ES6=1 \
+		-s MODULARIZE=1 \
+		-s FORCE_FILESYSTEM=1 \
+		-s USE_ZLIB=1 \
+		-s EXPORTED_RUNTIME_METHODS="['ccall', 'cwrap', 'FS']" \
+		-s EXPORTED_FUNCTIONS="['_H5Fopen', '_H5Fclose']"
 	  
 clean:
 	rm -rf $(NATIVE_BUILD_DIR);
 	rm -rf $(WASM_BUILD_DIR);
-	rm -f $(APP_DIR)/h5js_module.*;
+	rm -f $(APP_DIR)/h5js_util.*;
 	rm -f $(APP_DIR)/libhdf5.*;
