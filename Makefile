@@ -7,7 +7,7 @@ WASM_LIBS = $(WASM_LIB_DIR)/libhdf5.a $(WASM_LIB_DIR)/libhdf5_hl.a
 
 #WASM_LIBS = libhdf5.a
 HDF5_SRC=libhdf5
-SRC = src
+SRC = .
 APP_DIR = dist
 APP = $(APP_DIR)/h5js_util.js
 LIBHDF5 = $(APP_DIR)/libhdf5.js
@@ -52,7 +52,6 @@ $(LIBHDF5): $(WASM_LIBS)
 	emcc -O3 $(WASM_LIBS) \
 	  -o $(APP_DIR)/libhdf5.html \
 	  -I$(WASM_INCLUDE_DIR)/src \
-	  -fPIC \
 	  -s WASM_BIGINT \
 	  -s FORCE_FILESYSTEM=1 \
 	  -s USE_ZLIB=1 \
