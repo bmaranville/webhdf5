@@ -15,52 +15,58 @@ EM_JS(void, throw_error, (const char *string_error), {
     throw(UTF8ToString(string_error));
 });
 
-herr_t name_callback(hid_t loc_id, const char *name, const H5L_info_t *linfo, void *opdata)
+// void throw_error(const char *string_error) {
+//     throw std::runtime_error(string_error);
+// }
+
+// void throw_error(const char * string_error) {
+//     // pass
+// }
+
+
+herr_t link_name_callback(hid_t loc_id, const char *name, const H5L_info_t *linfo, void *opdata)
 {
     std::vector<std::string> *namelist = reinterpret_cast<std::vector<std::string> *>(opdata);
     (*namelist).push_back(name);
     return 0;
 }
 
-std::vector<std::string> get_keys_vector(hid_t group_id)
+std::vector<std::string> get_keys_vector(hid_t group_id, H5_index_t index = H5_INDEX_NAME)
 {
     //val output = val::array();
     std::vector<std::string> namelist;
-    herr_t idx = H5Literate(group_id, H5_INDEX_NAME, H5_ITER_INC, NULL, name_callback, &namelist);
+    herr_t idx = H5Literate(group_id, index, H5_ITER_INC, NULL, link_name_callback, &namelist);
     return namelist;
 }
 
-val get_child_names(hid_t loc_id, std::string group_name)
+val get_child_names(hid_t loc_id, const std::string group_name_string)
 {
     hid_t gcpl_id;
     unsigned crt_order_flags;
     size_t namesize;
     herr_t status;
+    const char *group_name = group_name_string.c_str();
 
-    hid_t grp = H5Gopen2(loc_id, group_name.c_str(), H5P_DEFAULT);
+    hid_t grp = H5Gopen2(loc_id, group_name, H5P_DEFAULT);
     if (grp < 0)
     {
         throw_error("error - name not defined!");
         return val::null();
     }
 
-    val names = val::array();
-    H5G_info_t grp_info;
-    status = H5Gget_info(grp, &grp_info);
-    hsize_t numObjs = grp_info.nlinks;
-
     gcpl_id = H5Gget_create_plist(grp);
     status = H5Pget_link_creation_order(gcpl_id, &crt_order_flags);
     H5_index_t index = (crt_order_flags & H5P_CRT_ORDER_INDEXED) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
 
-    for (hsize_t i = 0; i < numObjs; i++)
-    {
-        namesize = H5Lget_name_by_idx(loc_id, group_name.c_str(), index, H5_ITER_INC, i, nullptr, namesize, H5P_DEFAULT);
-        char *name = new char[namesize + 1];
-        H5Lget_name_by_idx(loc_id, group_name.c_str(), H5_INDEX_NAME, H5_ITER_INC, i, name, namesize + 1, H5P_DEFAULT);
-        names.set(i, std::string(name));
-        delete[] name;
+    std::vector<std::string> names_vector;
+    herr_t idx = H5Literate(grp, index, H5_ITER_INC, NULL, link_name_callback, &names_vector);
+
+    val names = val::array();
+    size_t numObjs = names_vector.size();
+    for (size_t i=0; i<numObjs; i++) {
+        names.set(i, names_vector.at(i));
     }
+
     H5Gclose(grp);
     return names;
 }
@@ -109,46 +115,62 @@ val get_type(hid_t loc_id, const std::string obj_name_string)
     H5O_info_t oinfo;
     const char * obj_name = obj_name_string.c_str();
     herr_t status = H5Oget_info_by_name(loc_id, obj_name, &oinfo, H5O_INFO_BASIC, H5P_DEFAULT);
+    // if (status < 0) {
+    //     throw_error(obj_name);
+    //     return val::null();
+    // }
     return val((int)oinfo.type);
 }
 
-val get_attribute_names(hid_t loc_id, const std::string group_name_string)
+herr_t attribute_name_callback(hid_t loc_id, const char *name, const H5A_info_t *ainfo, void *opdata)
 {
-    hid_t gcpl_id;
+    std::vector<std::string> *namelist = reinterpret_cast<std::vector<std::string> *>(opdata);
+    (*namelist).push_back(name);
+    return 0;
+}
+
+val get_attribute_names(hid_t loc_id, const std::string obj_name_string)
+{
+    hid_t ocpl_id;
     unsigned crt_order_flags;
     size_t namesize;
     herr_t status;
     //H5A_info_t * ainfo;
     //H5T_cset_t cset;
-    const char *group_name = group_name_string.c_str();
+    const char *obj_name = obj_name_string.c_str();
 
-    val names = val::array();
-    hid_t grp = H5Gopen2(loc_id, group_name, H5P_DEFAULT);
-    if (grp < 0)
+    hid_t obj_id = H5Oopen(loc_id, obj_name, H5P_DEFAULT);
+    if (obj_id < 0)
     {
         throw_error("error - name not defined!");
         return val::null();
     }
 
     H5O_info_t oinfo;
-    status = H5Oget_info(grp, &oinfo, H5O_INFO_NUM_ATTRS);
+    status = H5Oget_info(obj_id, &oinfo, H5O_INFO_BASIC | H5O_INFO_NUM_ATTRS);
     hsize_t numAttrs = oinfo.num_attrs;
+    H5O_type_t obj_type = oinfo.type;
 
-    gcpl_id = H5Gget_create_plist(grp);
-    status = H5Pget_attr_creation_order(gcpl_id, &crt_order_flags);
+    if (obj_type == H5O_TYPE_GROUP) {
+        ocpl_id = H5Gget_create_plist(obj_id);
+    }
+    else {
+        ocpl_id = H5Dget_create_plist(obj_id);
+    }
+    
+    status = H5Pget_attr_creation_order(ocpl_id, &crt_order_flags);
     H5_index_t index = (crt_order_flags & H5P_CRT_ORDER_INDEXED) ? H5_INDEX_CRT_ORDER : H5_INDEX_NAME;
 
-    for (hsize_t i = 0; i < numAttrs; i++)
-    {
-        //status = H5Aget_info_by_idx(loc_id, group_name.c_str(), index, H5_ITER_INC, i, ainfo, H5P_DEFAULT);
-        //cset = ainfo->cset;
-        namesize = H5Aget_name_by_idx(grp, ".", index, H5_ITER_INC, i, NULL, 0, H5P_DEFAULT);
-        char *name = new char[namesize + 1];
-        namesize = H5Aget_name_by_idx(grp, ".", index, H5_ITER_INC, i, name, namesize + 1, H5P_DEFAULT);
-        names.set(i, std::string(name));
-        delete[] name;
+    std::vector<std::string> names_vector;
+    herr_t idx = H5Aiterate(obj_id, index, H5_ITER_INC, 0, attribute_name_callback, &names_vector);
+
+    val names = val::array();
+    size_t numObjs = names_vector.size();
+    for (size_t i=0; i<numObjs; i++) {
+        names.set(i, names_vector.at(i));
     }
-    status = H5Gclose(grp);
+
+    status = H5Oclose(obj_id);
     return names;
 }
 
@@ -343,7 +365,7 @@ val get_attribute_data(hid_t loc_id, const std::string group_name_string, const 
     dspace = H5Aget_space(attr_id);
 
     int total_size = H5Sget_simple_extent_npoints(dspace);
-    std::cout << H5Sget_simple_extent_ndims(dspace) << std::endl;
+    //std::cout << H5Sget_simple_extent_ndims(dspace) << std::endl;
     size_t size = H5Tget_size(dtype);
     htri_t is_vlstr = H5Tis_variable_str(dtype);
 
