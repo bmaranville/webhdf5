@@ -29,6 +29,7 @@ C_FLAGS = \
    -Wno-unused-variable \
 
 $(WASM_LIBS):
+	sed -i $(HDF5_SRC)/src/CMakeLists.txt -e '/PLATFORM_ID:Emscripten/d'
 	mkdir -p $(WASM_BUILD_DIR);
 	cd $(WASM_BUILD_DIR) \
         && LDFLAGS="-s NODERAWFS=1" emcmake cmake ../$(HDF5_SRC) \
@@ -41,9 +42,7 @@ $(WASM_LIBS):
         -DCMAKE_C_FLAGS=$(C_FLAGS) \
         -DHDF5_BUILD_EXAMPLES=0 \
         -DHDF5_BUILD_TOOLS=0 \
-        -DHDF5_ENABLE_Z_LIB_SUPPORT=1 \
-        -DHDF5_BUILD_MODE_PRODUCTION=1;
-	-cd $(WASM_BUILD_DIR) && sed -i src/CMakeFiles/H5make_libsettings.dir/linklibs.rsp -e 's/-l"-O0"/"-O0"/g';
+        -DHDF5_ENABLE_Z_LIB_SUPPORT=1
 	cd $(WASM_BUILD_DIR) && emmake make -j8 install;
 
 $(LIBHDF5): $(WASM_LIBS)
