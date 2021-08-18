@@ -31,10 +31,10 @@ C_FLAGS = \
 $(WASM_LIBS):
 	mkdir -p $(WASM_BUILD_DIR);
 	cd $(WASM_BUILD_DIR) \
-        && emcmake cmake ../$(HDF5_SRC) \
-		-DCMAKE_INSTALL_PREFIX=hdf5 \
-	    -DH5_HAVE_GETPWUID=0 \
-		-DH5_HAVE_SIGNAL=0 \
+        && LDFLAGS="-s NODERAWFS=1" emcmake cmake ../$(HDF5_SRC) \
+        -DCMAKE_INSTALL_PREFIX=hdf5 \
+        -DH5_HAVE_GETPWUID=0 \
+        -DH5_HAVE_SIGNAL=0 \
         -DBUILD_SHARED_LIBS=0 \
         -DBUILD_STATIC_LIBS=1 \
         -DBUILD_TESTING=0 \
@@ -43,9 +43,7 @@ $(WASM_LIBS):
         -DHDF5_BUILD_TOOLS=0 \
         -DHDF5_ENABLE_Z_LIB_SUPPORT=1 \
         -DHDF5_BUILD_MODE_PRODUCTION=1;
-	-cd $(WASM_BUILD_DIR) && grep -rl "\-l\"\-O0" | xargs sed -i 's/-l//g';
-	-cd $(WASM_BUILD_DIR) && grep -rl 'H5detect.js /' | xargs sed -i 's/H5detect.js \//H5detect.js > \//g';
-	-cd $(WASM_BUILD_DIR) && grep -rl 'H5make_libsettings.js /' | xargs sed -i 's/H5make_libsettings.js \//H5make_libsettings.js > \//g';
+	-cd $(WASM_BUILD_DIR) && sed -i src/CMakeFiles/H5make_libsettings.dir/linklibs.rsp -e 's/-l"-O0"/"-O0"/g';
 	cd $(WASM_BUILD_DIR) && emmake make -j8 install;
 
 $(LIBHDF5): $(WASM_LIBS)
