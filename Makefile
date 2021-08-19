@@ -1,21 +1,27 @@
-NATIVE_BUILD_DIR = native_build
-NATIVE_HELPERS = $(NATIVE_BUILD_DIR)/src/H5detect $(NATIVE_BUILD_DIR)/src/H5make_libsettings
 WASM_BUILD_DIR = wasm_build
 WASM_LIB_DIR = $(WASM_BUILD_DIR)/hdf5/lib
 WASM_INCLUDE_DIR = $(WASM_BUILD_DIR)/hdf5/include
 WASM_LIBS = $(WASM_LIB_DIR)/libhdf5.a $(WASM_LIB_DIR)/libhdf5_hl.a 
 
 #WASM_LIBS = libhdf5.a
-HDF5_SRC=libhdf5
+HDF5_VER = hdf5-1_12_1
+HDF5_SRC = hdf5-$(HDF5_VER)
+
+HDF5_DOWNLOAD_URL = https://github.com/HDFGroup/hdf5/archive/refs/tags/$(HDF5_VER).tar.gz
+HDF5_DOWNLOAD_HASH = e6dde173c2d243551922d23a0387a79961205b018502e6a742acb30b61bc2d5f
 SRC = .
 APP_DIR = dist
 APP = $(APP_DIR)/h5js_util.js
 LIBHDF5 = $(APP_DIR)/libhdf5.js
 
 app: $(APP)
-all: $(APP) $(LIBHDF5) 
+all: $(HDF5_SRC) $(APP) $(LIBHDF5) 
 wasm: $(WASM_LIBS)
-native: $(NATIVE_HELPERS)
+
+$(HDF5_SRC):
+	curl -L $(HDF5_DOWNLOAD_URL) -o hdf5_src.tgz;
+	echo "$(HDF5_DOWNLOAD_HASH) hdf5_src.tgz" | sha256sum --check;
+	tar -xzf hdf5_src.tgz;
 
 C_FLAGS = \
    -Wno-incompatible-pointer-types-discards-qualifiers \
@@ -28,8 +34,7 @@ C_FLAGS = \
    -Wno-unused-function \
    -Wno-unused-variable \
 
-$(WASM_LIBS):
-	sed -i $(HDF5_SRC)/src/CMakeLists.txt -e '/PLATFORM_ID:Emscripten/d'
+$(WASM_LIBS): $(HDF5_SRC)
 	mkdir -p $(WASM_BUILD_DIR);
 	cd $(WASM_BUILD_DIR) \
         && LDFLAGS="-s NODERAWFS=1" emcmake cmake ../$(HDF5_SRC) \
@@ -42,7 +47,7 @@ $(WASM_LIBS):
         -DCMAKE_C_FLAGS=$(C_FLAGS) \
         -DHDF5_BUILD_EXAMPLES=0 \
         -DHDF5_BUILD_TOOLS=0 \
-        -DHDF5_ENABLE_Z_LIB_SUPPORT=1
+        -DHDF5_ENABLE_Z_LIB_SUPPORT=1;
 	cd $(WASM_BUILD_DIR) && emmake make -j8 install;
 
 $(LIBHDF5): $(WASM_LIBS)
